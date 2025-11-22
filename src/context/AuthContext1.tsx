@@ -36,10 +36,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // معالجة callback بعد المصادقة
     const handleAuthCallback = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        if (session) {
-          setUser(session.user);
+        // استخراج hash من URL
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        
+        if (accessToken && refreshToken) {
+          // تعيين الجلسة يدوياً
+          const { data: { session }, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          
+          if (error) throw error;
+          if (session) {
+            setUser(session.user);
+            // تنظيف URL
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        } else {
+          // محاولة جلب الجلسة العادية
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (error) throw error;
+          if (session) {
+            setUser(session.user);
+          }
         }
       } catch (error) {
         console.error('Error handling auth callback:', error);
@@ -49,7 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     // التحقق من وجود hash في URL (callback من OAuth)
-    if (window.location.hash) {
+    if (window.location.hash && window.location.hash.includes('access_token')) {
       handleAuthCallback();
     }
 
@@ -72,7 +93,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   
   const signInWithGithub = async () => {
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
+      // الحصول على URL الحالي بشكل صحيح
+      const currentUrl = window.location.href.split('#')[0].split('?')[0];
+      const redirectTo = currentUrl.endsWith('/') ? currentUrl : `${currentUrl}/`;
+      
+      console.log('Redirecting to:', redirectTo);
+      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -86,11 +112,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       if (error) {
         console.error('Error signing in with Google:', error);
-        alert('حدث خطأ أثناء تسجيل الدخول. يرجى المحاولة مرة أخرى.');
+        alert(`حدث خطأ أثناء تسجيل الدخول: ${error.message}`);
+      } else if (data?.url) {
+        // إذا كان هناك URL، Supabase سيعيد التوجيه تلقائياً
+        console.log('OAuth URL:', data.url);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Unexpected error during sign in:', error);
-      alert('حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.');
+      alert(`حدث خطأ غير متوقع: ${error?.message || 'خطأ غير معروف'}`);
     }
   };
   const signOut = () => {
